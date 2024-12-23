@@ -3,6 +3,7 @@ import { Polygon } from './models/Polygon.js';
 import { GridService } from './services/GridService.js';
 import { DrawingService } from './services/DrawingService.js';
 import { UIService } from './services/UIService.js';
+import { DebugService } from './services/DebugService.js';
 
 export class DrawingApp {
     constructor(canvasId) {
@@ -13,6 +14,7 @@ export class DrawingApp {
         this.gridService = new GridService(this.ctx);
         this.drawingService = new DrawingService(this.ctx);
         this.uiService = new UIService();
+        this.debugService = new DebugService();
         
         // Stan aplikacji
         this.points = new Map();
@@ -58,25 +60,7 @@ export class DrawingApp {
         this.canvas.addEventListener('mousemove', (e) => this.handleMouseMove(e));
         
         // Obsługa skalowania siatki za pomocą kółka myszy
-        this.canvas.addEventListener('wheel', (e) => {
-            if (e.ctrlKey || e.metaKey) {
-                e.preventDefault();
-                const gridSizeInput = document.getElementById('gridSize');
-                const currentSize = parseInt(gridSizeInput.value);
-                const delta = e.deltaY > 0 ? -5 : 5; // Zmiana o 5 pikseli
-                const newSize = Math.max(
-                    this.gridService.minGridSize, 
-                    Math.min(
-                        this.gridService.maxGridSize, 
-                        Math.round(currentSize / 5) * 5 + delta // Zaokrąglenie do wielokrotności 5
-                    )
-                );
-                
-                gridSizeInput.value = newSize;
-                this.gridService.setGridSize(newSize);
-                this.redraw();
-            }
-        }, { passive: false });
+        this.canvas.addEventListener('wheel', (e) => this.handleWheel(e), { passive: false });
 
         // Obsługa klawiatury
         document.addEventListener('keydown', (e) => {
@@ -116,6 +100,51 @@ export class DrawingApp {
         });
     }
 
+    handleWheel(e) {
+        if (e.ctrlKey || e.metaKey) {
+            e.preventDefault();
+            const delta = e.deltaY > 0 ? -5 : 5;
+            const newGridSize = Math.round((this.gridService.gridSize + delta) / 5) * 5;
+            
+            if (newGridSize >= this.gridService.minGridSize && newGridSize <= this.gridService.maxGridSize) {
+                // Zapisz aktualne pozycje punktów w metrach
+                const pointsInMeters = new Map();
+                this.points.forEach((point, id) => {
+                    pointsInMeters.set(id, {
+                        realX: point.realX,
+                        realY: point.realY
+                    });
+                });
+
+                // Zmień rozmiar siatki
+                const oldGridSize = this.gridService.gridSize;
+                this.gridService.setGridSize(newGridSize);
+
+                // Przelicz pozycje punktów na nową siatkę
+                pointsInMeters.forEach((coords, id) => {
+                    const point = this.points.get(id);
+                    // Zachowaj proporcje względem starej siatki
+                    const scaleRatio = newGridSize / oldGridSize;
+                    const newX = Math.round((point.x * scaleRatio) / newGridSize) * newGridSize;
+                    const newY = Math.round((point.y * scaleRatio) / newGridSize) * newGridSize;
+                    
+                    point.x = newX;
+                    point.y = newY;
+                    point.realX = newX / 100;
+                    point.realY = newY / 100;
+                });
+
+                // Aktualizuj input
+                const gridSizeInput = document.getElementById('gridSize');
+                if (gridSizeInput) {
+                    gridSizeInput.value = newGridSize;
+                }
+
+                this.redraw();
+            }
+        }
+    }
+
     handleCanvasClick(e) {
         const rect = this.canvas.getBoundingClientRect();
         const x = e.clientX - rect.left;
@@ -129,8 +158,6 @@ export class DrawingApp {
                 if (clickedPointId === this.firstPointInPolygon && this.polygons[this.activePolygonIndex].points.length > 2) {
                     const polygon = this.polygons[this.activePolygonIndex];
                     if (polygon.close()) {
-                        const area = this.calculatePolygonArea(polygon);
-                        this.uiService.showAreaTooltip(e.clientX, e.clientY, area);
                         this.updatePolygonInfo();
                         this.createNewPolygon();
                     }
@@ -175,18 +202,20 @@ export class DrawingApp {
 
         if (this.activePolygonIndex !== -1) {
             const polygon = this.polygons[this.activePolygonIndex];
-            if (polygon.points.length > 0) {
+            if (!polygon.isClosed && polygon.points.length > 0) {
                 const lastPoint = this.points.get(polygon.points[polygon.points.length - 1]);
-                const distance = Math.sqrt(
-                    Math.pow(lastPoint.realX - coords.realX, 2) + 
-                    Math.pow(lastPoint.realY - coords.realY, 2)
-                );
-                this.uiService.showDistanceTooltip(e.clientX, e.clientY, distance);
-            } else {
-                this.uiService.hideDistanceTooltip();
+                // Sprawdzamy czy kursor jest blisko pierwszego punktu (do zamknięcia figury)
+                if (polygon.points.length > 2) {
+                    const firstPoint = this.points.get(polygon.points[0]);
+                    const distanceToFirst = Math.sqrt(
+                        Math.pow(firstPoint.x - coords.x, 2) + 
+                        Math.pow(firstPoint.y - coords.y, 2)
+                    );
+                    if (distanceToFirst < 20) { // 20 pikseli tolerancji
+                        this.currentMousePosition = firstPoint;
+                    }
+                }
             }
-        } else {
-            this.uiService.hideDistanceTooltip();
         }
 
         this.redraw();
@@ -294,24 +323,47 @@ export class DrawingApp {
 
     createNewPolygon() {
         const name = document.getElementById('polygonName').value || `Figura ${this.polygons.length + 1}`;
-        this.polygons.push(new Polygon(name));
+        const polygon = new Polygon(name, this.debugService);
+        this.polygons.push(polygon);
         this.activePolygonIndex = this.polygons.length - 1;
-        this.firstPointInPolygon = null;
+        
+        if (this.debugService) {
+            this.debugService.log('DrawingApp', {
+                action: 'createNewPolygon',
+                name: name,
+                index: this.activePolygonIndex
+            });
+        }
     }
 
     reset() {
-        this.points = new Map();
+        // Wyczyść wszystkie kolekcje
+        this.points.clear();
         this.polygons = [];
         this.activePolygonIndex = -1;
-        this.nextPointId = 1;
-        this.selectedPoints.clear();
+        this.nextPointId = 0;
         this.firstPointInPolygon = null;
+        this.currentMousePosition = null;
+
+        // Zresetuj UI
+        this.uiService.hideDistanceTooltip();
+        this.uiService.hideAreaTooltip();
+        this.uiService.updatePolygonInfo(this.polygons, this.activePolygonIndex, this.calculatePolygonArea.bind(this));
+
+        // Wyczyść canvas
+        this.drawingService.clear();
+        this.gridService.drawGrid();
+
+        // Zresetuj tryb rysowania
         this.drawingMode = 'polygon';
-        this.isDrawingLine = false;
-        this.isFillMode = false;
-        
-        document.getElementById('polygonName').value = '';
-        this.createNewPolygon();
+        document.getElementById('drawingMode').value = 'polygon';
+
+        // Zresetuj rozmiar siatki
+        const defaultGridSize = 10;
+        this.gridService.setGridSize(defaultGridSize);
+        document.getElementById('gridSize').value = defaultGridSize;
+
+        // Odśwież canvas
         this.redraw();
     }
 
@@ -330,99 +382,89 @@ export class DrawingApp {
     redraw() {
         this.drawingService.clear();
         this.gridService.drawGrid();
+        this.uiService.hideAreaTooltip(); // Dodane czyszczenie chmurki
 
-        // Rysuj wielokąty
-        this.polygons.forEach(polygon => {
-            if (polygon.points.length < 2) return;
-
-            const points = polygon.points.map(id => this.points.get(id));
-            
-            // Rysuj linie między punktami i wymiary
-            for (let i = 0; i < points.length - 1; i++) {
-                const startPoint = points[i];
-                const endPoint = points[i + 1];
-                
-                this.drawingService.drawLine(
-                    startPoint.x, startPoint.y,
-                    endPoint.x, endPoint.y
-                );
-
-                // Pokaż wymiary jeśli opcja jest włączona
-                if (this.showDimensions) {
-                    const distance = Math.sqrt(
-                        Math.pow(endPoint.realX - startPoint.realX, 2) +
-                        Math.pow(endPoint.realY - startPoint.realY, 2)
-                    );
-
-                    const midX = (startPoint.x + endPoint.x) / 2;
-                    const midY = (startPoint.y + endPoint.y) / 2;
-
-                    this.drawingService.drawDimensionLabel(
-                        midX, midY,
-                        `${distance.toFixed(2)}m`
-                    );
-                }
-            }
-
-            // Jeśli wielokąt jest zamknięty
-            if (polygon.isClosed && points.length > 2) {
-                // Rysuj linię zamykającą
-                this.drawingService.drawLine(
-                    points[points.length - 1].x, points[points.length - 1].y,
-                    points[0].x, points[0].y
-                );
-
-                // Wypełnij wielokąt
-                this.drawingService.fillPolygon(points);
-
-                // Pokaż pole powierzchni jeśli opcja jest włączona
-                if (this.showDimensions) {
-                    const area = this.calculatePolygonArea(polygon);
-                    const centerX = points.reduce((sum, p) => sum + p.x, 0) / points.length;
-                    const centerY = points.reduce((sum, p) => sum + p.y, 0) / points.length;
-
-                    this.drawingService.drawAreaLabel(
-                        centerX, centerY,
-                        `${area.toFixed(2)}m²`
-                    );
-                }
-            }
-
-            // Rysuj punkty
-            points.forEach((point, i) => {
-                this.drawingService.drawPoint(
-                    point.x, point.y,
-                    this.selectedPoints.has(polygon.points[i]),
-                    polygon.points[i] === this.firstPointInPolygon
-                );
+        if (this.debugService) {
+            this.debugService.log('DrawingApp', {
+                action: 'redraw',
+                activePolygonIndex: this.activePolygonIndex,
+                totalPolygons: this.polygons.length,
+                showDimensions: true
             });
+        }
+
+        // Rysuj wszystkie wielokąty
+        this.polygons.forEach((polygon, index) => {
+            this.ctx.strokeStyle = '#2196F3'; // jednolity kolor dla wszystkich zatwierdzonych linii
+            polygon.draw(this.ctx, this.points, true);
         });
 
-        // Rysuj tymczasową linię
+        // Rysuj aktualną linię
         if (this.currentMousePosition && this.activePolygonIndex !== -1) {
-            const polygon = this.polygons[this.activePolygonIndex];
-            if (polygon && polygon.points.length > 0 && !polygon.isClosed) {
-                const lastPoint = this.points.get(polygon.points[polygon.points.length - 1]);
-                this.drawingService.drawLine(
-                    lastPoint.x, lastPoint.y,
-                    this.currentMousePosition.x, this.currentMousePosition.y,
-                    '#999'
+            const activePolygon = this.polygons[this.activePolygonIndex];
+            if (!activePolygon.isClosed && activePolygon.points.length > 0) {
+                const lastPoint = this.points.get(activePolygon.points[activePolygon.points.length - 1]);
+                
+                // Sprawdź czy linia jest prostopadła
+                const dx = Math.abs(this.currentMousePosition.x - lastPoint.x);
+                const dy = Math.abs(this.currentMousePosition.y - lastPoint.y);
+                const tolerance = 0.1;
+                const isOrthogonal = dx < tolerance || dy < tolerance;
+                
+                // Ustaw kolor w zależności od tego czy linia jest prostopadła
+                this.ctx.strokeStyle = isOrthogonal ? '#4CAF50' : '#FF5722';
+                
+                this.ctx.beginPath();
+                this.ctx.setLineDash([5, 5]);
+                this.ctx.moveTo(lastPoint.x, lastPoint.y);
+                this.ctx.lineTo(this.currentMousePosition.x, this.currentMousePosition.y);
+                this.ctx.stroke();
+                this.ctx.setLineDash([]);
+
+                // Pokaż wymiar dla aktualnie rysowanej linii
+                const distance = Math.sqrt(
+                    Math.pow(this.currentMousePosition.x - lastPoint.x, 2) +
+                    Math.pow(this.currentMousePosition.y - lastPoint.y, 2)
+                ) / 100; // konwersja na metry
+
+                const centerX = (lastPoint.x + this.currentMousePosition.x) / 2;
+                const centerY = (lastPoint.y + this.currentMousePosition.y) / 2;
+
+                this.ctx.save();
+                this.ctx.translate(centerX, centerY);
+                
+                // Rysuj tło dla wymiaru
+                this.ctx.font = '12px Arial';
+                const text = `${distance.toFixed(2)}m`;
+                const metrics = this.ctx.measureText(text);
+                const padding = 4;
+                
+                // Przesuń etykietę nad linię
+                const labelOffset = 15;
+                this.ctx.translate(0, -labelOffset);
+                
+                this.ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+                this.ctx.fillRect(
+                    -metrics.width/2 - padding,
+                    -8 - padding,
+                    metrics.width + 2 * padding,
+                    16 + 2 * padding
                 );
+                
+                this.ctx.fillStyle = isOrthogonal ? '#4CAF50' : '#FF5722';
+                this.ctx.textAlign = 'center';
+                this.ctx.textBaseline = 'middle';
+                this.ctx.fillText(text, 0, 0);
+                this.ctx.restore();
 
-                // Pokaż wymiar tymczasowej linii
-                if (this.showDimensions) {
-                    const distance = Math.sqrt(
-                        Math.pow(this.currentMousePosition.realX - lastPoint.realX, 2) +
-                        Math.pow(this.currentMousePosition.realY - lastPoint.realY, 2)
-                    );
-
-                    const midX = (lastPoint.x + this.currentMousePosition.x) / 2;
-                    const midY = (lastPoint.y + this.currentMousePosition.y) / 2;
-
-                    this.drawingService.drawDimensionLabel(
-                        midX, midY,
-                        `${distance.toFixed(2)}m`
-                    );
+                if (this.debugService) {
+                    this.debugService.log('GuideLine', {
+                        startPoint: { x: lastPoint.x, y: lastPoint.y },
+                        endPoint: this.currentMousePosition,
+                        isOrthogonal: isOrthogonal,
+                        dx: dx,
+                        dy: dy
+                    });
                 }
             }
         }

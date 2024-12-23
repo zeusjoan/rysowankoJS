@@ -4,11 +4,20 @@ export class GridService {
         this.gridSize = gridSize;
         this.minGridSize = 5;
         this.maxGridSize = 100;
-        this.gridColor = 'rgba(255, 165, 0, 0.2)'; // Wyblakły pomarańczowy
+        this.gridColor = 'rgba(255, 165, 0, 0.2)';
+        this.pixelsPerMeter = 100; // 1 metr = 100 pikseli
     }
 
     setGridSize(size) {
-        this.gridSize = Math.max(this.minGridSize, Math.min(this.maxGridSize, size));
+        const newSize = Math.max(this.minGridSize, Math.min(this.maxGridSize, size));
+        if (this.gridSize !== newSize) {
+            this.gridSize = newSize;
+            // Aktualizuj pole input jeśli istnieje
+            const gridSizeInput = document.getElementById('gridSize');
+            if (gridSizeInput) {
+                gridSizeInput.value = this.gridSize;
+            }
+        }
     }
 
     drawGrid() {
@@ -21,38 +30,61 @@ export class GridService {
 
         // Pionowe linie
         for (let x = 0; x <= width; x += this.gridSize) {
-            this.ctx.moveTo(x + 0.5, 0); // +0.5 dla ostrych linii
-            this.ctx.lineTo(x + 0.5, height);
+            this.ctx.moveTo(Math.floor(x) + 0.5, 0);
+            this.ctx.lineTo(Math.floor(x) + 0.5, height);
         }
 
         // Poziome linie
         for (let y = 0; y <= height; y += this.gridSize) {
-            this.ctx.moveTo(0, y + 0.5); // +0.5 dla ostrych linii
-            this.ctx.lineTo(width, y + 0.5);
+            this.ctx.moveTo(0, Math.floor(y) + 0.5);
+            this.ctx.lineTo(width, Math.floor(y) + 0.5);
         }
 
         this.ctx.stroke();
     }
 
     screenToGrid(x, y) {
-        // Konwersja współrzędnych ekranu na współrzędne siatki
+        // Pobierz aktualne wymiary canvasa
         const canvasRect = this.ctx.canvas.getBoundingClientRect();
         const scaleX = this.ctx.canvas.width / canvasRect.width;
         const scaleY = this.ctx.canvas.height / canvasRect.height;
-        
-        // Przeskaluj współrzędne
-        const scaledX = x * scaleX;
-        const scaledY = y * scaleY;
-        
+
+        // Przeskaluj współrzędne ekranu na współrzędne canvasa
+        const canvasX = x * scaleX;
+        const canvasY = y * scaleY;
+
         // Przyciągnij do najbliższej linii siatki
-        const gridX = Math.round(scaledX / this.gridSize) * this.gridSize;
-        const gridY = Math.round(scaledY / this.gridSize) * this.gridSize;
+        const gridX = Math.round(canvasX / this.gridSize) * this.gridSize;
+        const gridY = Math.round(canvasY / this.gridSize) * this.gridSize;
 
         return {
             x: gridX,
             y: gridY,
-            realX: gridX / 100, // Konwersja na metry (1 piksel = 0.01m)
-            realY: gridY / 100
+            realX: gridX / this.pixelsPerMeter,
+            realY: gridY / this.pixelsPerMeter
+        };
+    }
+
+    gridToPixels(gridX, gridY) {
+        return {
+            x: gridX * this.gridSize,
+            y: gridY * this.gridSize
+        };
+    }
+
+    metersToPixels(realX, realY) {
+        const pixelX = realX * this.pixelsPerMeter;
+        const pixelY = realY * this.pixelsPerMeter;
+        return {
+            x: Math.round(pixelX / this.gridSize) * this.gridSize,
+            y: Math.round(pixelY / this.gridSize) * this.gridSize
+        };
+    }
+
+    pixelsToMeters(pixelX, pixelY) {
+        return {
+            realX: pixelX / this.pixelsPerMeter,
+            realY: pixelY / this.pixelsPerMeter
         };
     }
 }
