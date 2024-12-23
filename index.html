@@ -5,18 +5,32 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Rysowanie Wielokątów</title>
     <link rel="stylesheet" href="styles.css">
+    <style>
+        button.active {
+            background-color: #4CAF50;
+            color: white;
+        }
+        
+        .polygon-info {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+    </style>
 </head>
 <body>
     <div class="container">
         <div class="controls">
             <div class="polygon-info">
-                <input type="text" id="polygonName" placeholder="Nazwa figury">
                 <button id="newPolygon">Nowa figura</button>
+                <button id="drawLine">Rysuj linię</button>
+                <button id="drawPolygon" class="active">Rysuj wielokąt</button>
+                <input type="text" id="polygonName" placeholder="Nazwa figury">
             </div>
             <button id="reset">Reset</button>
             <div class="grid-control">
                 <label>Skala siatki (px):
-                    <input type="number" id="gridSize" value="50" min="10" max="100" step="10">
+                    <input type="number" id="gridSize" value="10" min="5" max="100">
                 </label>
             </div>
             <div class="command-input">

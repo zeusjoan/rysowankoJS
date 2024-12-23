@@ -11,10 +11,365 @@ class DrawingApp {
         this.nextPointId = 1;
         this.firstPointInPolygon = null;
         this.tempPoints = [];
+        this.tempLine = null;
+        
+        // Dodane zmienne dla zaznaczania
+        this.selectedPoints = new Set();
+        this.isSelecting = false;
+        this.selectionStart = null;
+        this.selectionEnd = null;
+        this.isDragging = false;
+        
+        // Tryb rysowania
+        this.drawingMode = 'polygon'; // 'polygon' lub 'line'
+        this.lineStartPoint = null;
         
         this.setupEventListeners();
         this.createNewPolygon();
         this.drawGrid();
+    }
+
+    setupEventListeners() {
+        // Przyciski trybu rysowania
+        document.getElementById('drawPolygon').addEventListener('click', () => {
+            this.drawingMode = 'polygon';
+            this.updateDrawingModeButtons();
+            this.resetCurrentDrawing();
+        });
+
+        document.getElementById('drawLine').addEventListener('click', () => {
+            this.drawingMode = 'line';
+            this.updateDrawingModeButtons();
+            this.resetCurrentDrawing();
+        });
+
+        document.getElementById('gridSize').addEventListener('change', (e) => {
+            const newSize = parseInt(e.target.value);
+            if (newSize >= this.minGridSize && newSize <= this.maxGridSize) {
+                this.updateGridSize(newSize);
+            }
+        });
+
+        this.canvas.addEventListener('click', (e) => {
+            if (!e.ctrlKey) {
+                if (this.drawingMode === 'polygon') {
+                    this.handleCanvasClick(e);
+                } else {
+                    this.handleLineClick(e);
+                }
+            }
+        });
+        
+        this.canvas.addEventListener('mousedown', (e) => {
+            if (e.ctrlKey) {
+                this.isSelecting = true;
+                this.selectionStart = { x: e.clientX - this.canvas.getBoundingClientRect().left, y: e.clientY - this.canvas.getBoundingClientRect().top };
+                this.selectionEnd = { ...this.selectionStart };
+                
+                // Sprawdź, czy kliknięto punkt
+                const clickedPoint = this.findPointAtPosition(e.clientX, e.clientY);
+                if (clickedPoint) {
+                    if (this.selectedPoints.has(clickedPoint)) {
+                        this.selectedPoints.delete(clickedPoint);
+                    } else {
+                        this.selectedPoints.add(clickedPoint);
+                    }
+                    this.redraw();
+                }
+            }
+        });
+
+        this.canvas.addEventListener('mousemove', (e) => {
+            if (this.isSelecting && e.ctrlKey) {
+                this.selectionEnd = { x: e.clientX - this.canvas.getBoundingClientRect().left, y: e.clientY - this.canvas.getBoundingClientRect().top };
+                this.redraw();
+            } else {
+                this.handleMouseMove(e);
+            }
+        });
+
+        this.canvas.addEventListener('mouseup', (e) => {
+            if (this.isSelecting) {
+                this.isSelecting = false;
+                if (this.selectionStart && this.selectionEnd) {
+                    this.selectPointsInArea();
+                }
+                this.redraw();
+            }
+        });
+        
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Delete' && this.selectedPoints.size > 0) {
+                this.deleteSelectedPoints();
+            }
+        });
+
+        this.canvas.addEventListener('wheel', (e) => {
+            if (e.ctrlKey) {
+                e.preventDefault();
+                const delta = e.deltaY > 0 ? -5 : 5;
+                const newGridSize = Math.max(
+                    this.minGridSize,
+                    Math.min(this.maxGridSize, this.gridSize + delta)
+                );
+                
+                if (newGridSize !== this.gridSize) {
+                    this.updateGridSize(newGridSize);
+                }
+            }
+        });
+        
+        document.getElementById('newPolygon').addEventListener('click', () => this.createNewPolygon());
+        document.getElementById('reset').addEventListener('click', () => this.reset());
+    }
+
+    updateDrawingModeButtons() {
+        document.getElementById('drawPolygon').classList.toggle('active', this.drawingMode === 'polygon');
+        document.getElementById('drawLine').classList.toggle('active', this.drawingMode === 'line');
+    }
+
+    resetCurrentDrawing() {
+        this.tempPoints = [];
+        this.firstPointInPolygon = null;
+        this.lineStartPoint = null;
+        this.tempLine = null;
+        this.redraw();
+    }
+
+    handleLineClick(e) {
+        const coords = this.screenToGrid(e.clientX, e.clientY);
+        
+        if (!this.lineStartPoint) {
+            // Pierwszy punkt linii
+            const id = this.nextPointId++;
+            this.points.set(id, {x: coords.x, y: coords.y, realX: coords.realX, realY: coords.realY});
+            this.lineStartPoint = id;
+            this.tempPoints = [id];
+        } else {
+            // Drugi punkt linii - kończymy linię
+            const id = this.nextPointId++;
+            this.points.set(id, {x: coords.x, y: coords.y, realX: coords.realX, realY: coords.realY});
+            this.tempPoints.push(id);
+            
+            // Dodaj linię do aktywnego wielokąta
+            this.addLine(this.lineStartPoint, id);
+            
+            // Resetuj rysowanie linii
+            this.lineStartPoint = null;
+            this.tempPoints = [];
+            this.tempLine = null;
+        }
+        
+        this.redraw();
+    }
+
+    handleCanvasClick(e) {
+        const coords = this.screenToGrid(e.clientX, e.clientY);
+        
+        if (this.tempPoints.length === 0) {
+            this.firstPointInPolygon = this.addTempPoint(coords.x, coords.y, coords.realX, coords.realY);
+            return;
+        }
+        
+        const firstPoint = this.points.get(this.firstPointInPolygon);
+        const distance = Math.sqrt(
+            Math.pow(firstPoint.realX - coords.realX, 2) + 
+            Math.pow(firstPoint.realY - coords.realY, 2)
+        );
+        
+        if (distance < 0.05 && this.tempPoints.length > 2) { // Tolerancja 5cm
+            this.finishPolygon();
+        } else {
+            this.addTempPoint(coords.x, coords.y, coords.realX, coords.realY);
+        }
+    }
+
+    handleMouseMove(e) {
+        const coords = this.screenToGrid(e.clientX, e.clientY);
+        document.getElementById('coordinates').textContent = 
+            `Współrzędne: ${coords.realX.toFixed(2)}m, ${coords.realY.toFixed(2)}m`;
+        
+        if (this.isSelecting && e.ctrlKey) {
+            this.selectionEnd = { 
+                x: e.clientX - this.canvas.getBoundingClientRect().left, 
+                y: e.clientY - this.canvas.getBoundingClientRect().top 
+            };
+            this.redraw();
+            return;
+        }
+
+        // Rysowanie linii prowadzącej
+        if (this.drawingMode === 'line' && this.lineStartPoint) {
+            const startPoint = this.points.get(this.lineStartPoint);
+            this.tempLine = {
+                start: {x: startPoint.x, y: startPoint.y},
+                end: {x: coords.x, y: coords.y}
+            };
+        } else if (this.drawingMode === 'polygon' && this.tempPoints.length > 0) {
+            const lastPoint = this.points.get(this.tempPoints[this.tempPoints.length - 1]);
+            this.tempLine = {
+                start: {x: lastPoint.x, y: lastPoint.y},
+                end: {x: coords.x, y: coords.y}
+            };
+            
+            if (this.tempPoints.length > 2) {
+                const firstPoint = this.points.get(this.firstPointInPolygon);
+                const distance = Math.sqrt(
+                    Math.pow(firstPoint.realX - coords.realX, 2) + 
+                    Math.pow(firstPoint.realY - coords.realY, 2)
+                );
+                
+                if (distance < 0.05) {
+                    this.tempLine.end = {x: firstPoint.x, y: firstPoint.y};
+                }
+            }
+        }
+        
+        this.redraw();
+    }
+
+    findPointAtPosition(clientX, clientY) {
+        const rect = this.canvas.getBoundingClientRect();
+        const x = clientX - rect.left;
+        const y = clientY - rect.top;
+        
+        for (const [id, point] of this.points) {
+            const distance = Math.sqrt(
+                Math.pow(point.x - x, 2) + 
+                Math.pow(point.y - y, 2)
+            );
+            
+            if (distance < 10) { // Tolerancja kliknięcia 10px
+                return id;
+            }
+        }
+        return null;
+    }
+
+    selectPointsInArea() {
+        const left = Math.min(this.selectionStart.x, this.selectionEnd.x);
+        const right = Math.max(this.selectionStart.x, this.selectionEnd.x);
+        const top = Math.min(this.selectionStart.y, this.selectionEnd.y);
+        const bottom = Math.max(this.selectionStart.y, this.selectionEnd.y);
+
+        this.points.forEach((point, id) => {
+            if (point.x >= left && point.x <= right && 
+                point.y >= top && point.y <= bottom) {
+                this.selectedPoints.add(id);
+            }
+        });
+    }
+
+    deleteSelectedPoints() {
+        const activePolygon = this.polygons[this.activePolygonIndex];
+        if (!activePolygon) return;
+
+        // Usuń zaznaczone punkty
+        for (const pointId of this.selectedPoints) {
+            // Usuń punkt z mapy punktów
+            this.points.delete(pointId);
+            
+            // Usuń punkt z wielokąta
+            const pointIndex = activePolygon.points.indexOf(pointId);
+            if (pointIndex !== -1) {
+                activePolygon.points.splice(pointIndex, 1);
+            }
+            
+            // Usuń linie związane z tym punktem
+            activePolygon.lines = activePolygon.lines.filter(line => 
+                line.id1 !== pointId && line.id2 !== pointId
+            );
+            
+            // Jeśli usunięto pierwszy punkt wielokąta
+            if (pointId === this.firstPointInPolygon) {
+                this.firstPointInPolygon = null;
+            }
+            
+            // Usuń z tempPoints jeśli był tam obecny
+            const tempIndex = this.tempPoints.indexOf(pointId);
+            if (tempIndex !== -1) {
+                this.tempPoints.splice(tempIndex, 1);
+            }
+        }
+
+        // Wyczyść zaznaczenie
+        this.selectedPoints.clear();
+        this.redraw();
+    }
+
+    redraw() {
+        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        this.drawGrid();
+        
+        // Rysuj wszystkie wielokąty i linie
+        this.polygons.forEach((polygon, index) => {
+            this.ctx.strokeStyle = polygon.color || '#000';
+            this.ctx.lineWidth = 2;
+            
+            // Rysuj linie w wielokącie
+            polygon.lines.forEach(line => {
+                const point1 = this.points.get(line.id1);
+                const point2 = this.points.get(line.id2);
+                if (point1 && point2) {
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(point1.x, point1.y);
+                    this.ctx.lineTo(point2.x, point2.y);
+                    this.ctx.stroke();
+                    
+                    // Rysuj długość linii
+                    this.drawLineLength(point1, point2);
+                }
+            });
+            
+            // Rysuj punkty w wielokącie
+            polygon.points.forEach(pointId => {
+                const point = this.points.get(pointId);
+                if (point) {
+                    this.ctx.fillStyle = this.selectedPoints.has(pointId) ? 'red' : '#000';
+                    this.ctx.beginPath();
+                    this.ctx.arc(point.x, point.y, 4, 0, Math.PI * 2);
+                    this.ctx.fill();
+                }
+            });
+        });
+        
+        // Rysuj tymczasowe punkty i linie
+        this.tempPoints.forEach(pointId => {
+            const point = this.points.get(pointId);
+            if (point) {
+                this.ctx.fillStyle = this.selectedPoints.has(pointId) ? 'red' : '#000';
+                this.ctx.beginPath();
+                this.ctx.arc(point.x, point.y, 4, 0, Math.PI * 2);
+                this.ctx.fill();
+            }
+        });
+        
+        // Rysuj tymczasową linię
+        if (this.tempLine) {
+            this.ctx.strokeStyle = '#999';
+            this.ctx.lineWidth = 1;
+            this.ctx.setLineDash([5, 5]);
+            this.ctx.beginPath();
+            this.ctx.moveTo(this.tempLine.start.x, this.tempLine.start.y);
+            this.ctx.lineTo(this.tempLine.end.x, this.tempLine.end.y);
+            this.ctx.stroke();
+            this.ctx.setLineDash([]);
+        }
+        
+        // Rysuj obszar zaznaczenia
+        if (this.isSelecting && this.selectionStart && this.selectionEnd) {
+            this.ctx.strokeStyle = 'blue';
+            this.ctx.lineWidth = 1;
+            this.ctx.setLineDash([5, 5]);
+            
+            const x = Math.min(this.selectionStart.x, this.selectionEnd.x);
+            const y = Math.min(this.selectionStart.y, this.selectionEnd.y);
+            const width = Math.abs(this.selectionEnd.x - this.selectionStart.x);
+            const height = Math.abs(this.selectionEnd.y - this.selectionStart.y);
+            
+            this.ctx.strokeRect(x, y, width, height);
+            this.ctx.setLineDash([]);
+        }
     }
 
     // Konwersja współrzędnych rzeczywistych (w metrach) na piksele
@@ -63,85 +418,6 @@ class DrawingApp {
         return id;
     }
 
-    handleCanvasClick(e) {
-        const coords = this.screenToGrid(e.clientX, e.clientY);
-        
-        if (this.tempPoints.length === 0) {
-            this.firstPointInPolygon = this.addTempPoint(coords.x, coords.y, coords.realX, coords.realY);
-            return;
-        }
-        
-        const firstPoint = this.points.get(this.firstPointInPolygon);
-        const distance = Math.sqrt(
-            Math.pow(firstPoint.realX - coords.realX, 2) + 
-            Math.pow(firstPoint.realY - coords.realY, 2)
-        );
-        
-        if (distance < 0.05 && this.tempPoints.length > 2) { // Tolerancja 5cm
-            this.finishPolygon();
-        } else {
-            this.addTempPoint(coords.x, coords.y, coords.realX, coords.realY);
-        }
-    }
-
-    handleMouseMove(e) {
-        const coords = this.screenToGrid(e.clientX, e.clientY);
-        document.getElementById('coordinates').textContent = 
-            `Współrzędne: ${coords.realX.toFixed(2)}m, ${coords.realY.toFixed(2)}m`;
-        
-        if (this.tempPoints.length > 0) {
-            const lastPoint = this.points.get(this.tempPoints[this.tempPoints.length - 1]);
-            this.tempLine = {
-                start: {x: lastPoint.x, y: lastPoint.y},
-                end: {x: coords.x, y: coords.y}
-            };
-            
-            if (this.tempPoints.length > 2) {
-                const firstPoint = this.points.get(this.firstPointInPolygon);
-                const distance = Math.sqrt(
-                    Math.pow(firstPoint.realX - coords.realX, 2) + 
-                    Math.pow(firstPoint.realY - coords.realY, 2)
-                );
-                
-                if (distance < 0.05) { // Zmniejszona tolerancja dociągania do 5cm
-                    this.tempLine.end = {x: firstPoint.x, y: firstPoint.y};
-                }
-            }
-            
-            this.redraw();
-        }
-    }
-
-    setupEventListeners() {
-        document.getElementById('gridSize').addEventListener('change', (e) => {
-            const newSize = parseInt(e.target.value);
-            if (newSize >= this.minGridSize && newSize <= this.maxGridSize) {
-                this.updateGridSize(newSize);
-            }
-        });
-
-        this.canvas.addEventListener('click', (e) => this.handleCanvasClick(e));
-        this.canvas.addEventListener('mousemove', (e) => this.handleMouseMove(e));
-        
-        this.canvas.addEventListener('wheel', (e) => {
-            if (e.ctrlKey) {
-                e.preventDefault();
-                const delta = e.deltaY > 0 ? -5 : 5;
-                const newGridSize = Math.max(
-                    this.minGridSize,
-                    Math.min(this.maxGridSize, this.gridSize + delta)
-                );
-                
-                if (newGridSize !== this.gridSize) {
-                    this.updateGridSize(newGridSize);
-                }
-            }
-        });
-        
-        document.getElementById('newPolygon').addEventListener('click', () => this.createNewPolygon());
-        document.getElementById('reset').addEventListener('click', () => this.reset());
-    }
-
     updateGridSize(newSize) {
         this.gridSize = newSize;
         document.getElementById('gridSize').value = this.gridSize;
@@ -155,92 +431,23 @@ class DrawingApp {
         this.redraw();
     }
 
-    redraw() {
-        this.drawGrid();
-        
-        // Rysowanie wielokątów
-        this.polygons.forEach((polygon, index) => {
-            if (polygon.points.length < 3) return;
-            
-            this.ctx.strokeStyle = polygon.color;
-            this.ctx.lineWidth = 2;
-            
-            if (polygon.isClosed) {
-                this.ctx.fillStyle = polygon.color.replace(')', ', 0.2)');
-                this.ctx.beginPath();
-                
-                polygon.points.forEach((pointId, i) => {
-                    const point = this.points.get(pointId);
-                    if (i === 0) {
-                        this.ctx.moveTo(point.x, point.y);
-                    } else {
-                        this.ctx.lineTo(point.x, point.y);
-                    }
-                });
-                
-                this.ctx.closePath();
-                this.ctx.fill();
-            }
-            
-            polygon.lines.forEach(line => {
-                const point1 = this.points.get(line.id1);
-                const point2 = this.points.get(line.id2);
-                
-                if (point1 && point2) {
-                    this.ctx.beginPath();
-                    this.ctx.moveTo(point1.x, point1.y);
-                    this.ctx.lineTo(point2.x, point2.y);
-                    this.ctx.stroke();
-                    
-                    this.drawLineLength(point1, point2);
-                }
-            });
-        });
-        
-        if (this.tempLine) {
-            this.ctx.strokeStyle = '#999';
-            this.ctx.lineWidth = 1;
-            this.ctx.setLineDash([5, 5]);
-            this.ctx.beginPath();
-            this.ctx.moveTo(this.tempLine.start.x, this.tempLine.start.y);
-            this.ctx.lineTo(this.tempLine.end.x, this.tempLine.end.y);
-            this.ctx.stroke();
-            this.ctx.setLineDash([]);
-            
-            this.drawLineLength(this.tempLine.start, this.tempLine.end);
-        }
-        
-        this.points.forEach((point, id) => {
-            const isFirstPoint = id === this.firstPointInPolygon;
-            const radius = isFirstPoint ? 6 : 4;
-            
-            this.ctx.fillStyle = isFirstPoint ? '#00ff00' : '#333';
-            this.ctx.beginPath();
-            this.ctx.arc(point.x, point.y, radius, 0, Math.PI * 2);
-            this.ctx.fill();
-            
-            this.ctx.fillStyle = '#000';
-            this.ctx.font = '12px Arial';
-            this.ctx.textAlign = 'left';
-            this.ctx.textBaseline = 'bottom';
-            this.ctx.fillText(id.toString(), point.x + 8, point.y - 8);
-        });
-    }
-
     createNewPolygon() {
         this.polygons.push({
             points: [],
             lines: [],
-            name: '',
+            name: this.drawingMode === 'line' ? `Linia ${this.polygons.length + 1}` : '',
             isClosed: false,
             color: `hsl(${Math.random() * 360}, 70%, 50%)`
         });
         this.activePolygonIndex = this.polygons.length - 1;
         this.tempPoints = [];
         this.firstPointInPolygon = null;
+        this.lineStartPoint = null;
         this.updatePolygonInfo();
         
-        document.getElementById('polygonName').value = '';
+        if (this.drawingMode === 'polygon') {
+            document.getElementById('polygonName').value = '';
+        }
     }
 
     updatePolygonInfo() {
@@ -311,12 +518,12 @@ class DrawingApp {
         this.firstPointInPolygon = null;
         this.tempPoints = [];
         this.tempLine = null;
+        this.selectedPoints.clear();
         this.createNewPolygon();
         this.redraw();
     }
 
     drawGrid() {
-        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
         this.ctx.strokeStyle = '#ddd';
         this.ctx.lineWidth = 1;
 
