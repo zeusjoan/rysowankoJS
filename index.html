@@ -26,18 +26,24 @@
                 <button id="newPolygon">Nowa figura</button>
                 <button id="drawLine">Rysuj linię</button>
                 <button id="drawPolygon" class="active">Rysuj wielokąt</button>
+                <button id="fill">Wypełnij obszar</button>
                 <input type="text" id="polygonName" placeholder="Nazwa figury">
+                <label class="checkbox-label">
+                    <input type="checkbox" id="showDimensions" checked>
+                    Pokaż wymiary
+                </label>
             </div>
             <button id="reset">Reset</button>
             <div class="grid-control">
                 <label>Skala siatki (px):
-                    <input type="number" id="gridSize" value="10" min="5" max="100">
+                    <input type="number" id="gridSize" value="10" min="5" max="100" step="5">
                 </label>
             </div>
             <div class="command-input">
                 <input type="text" id="command" placeholder="np. dodaj 100,100">
                 <button id="executeCommand">Wykonaj</button>
             </div>
+            <span id="coordinates"></span>
         </div>
         
         <div class="drawing-area">
@@ -45,12 +51,16 @@
         </div>
         
         <div class="info-panel">
-            <div id="coordinates">Współrzędne: -</div>
-            <div id="activePolygon">Aktywna figura: -</div>
+            <div id="polygonList"></div>
             <div id="totalArea">Suma pól: 0 m²</div>
-            <div id="polygonList">Figury: -</div>
         </div>
     </div>
-    <script src="app.js"></script>
+    
+    <script type="module">
+        import { DrawingApp } from './js/DrawingApp.js';
+        window.addEventListener('load', () => {
+            window.app = new DrawingApp('canvas');
+        });
+    </script>
 </body>
 </html>
