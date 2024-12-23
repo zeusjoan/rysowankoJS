@@ -3,57 +3,39 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Rysownik</title>
+    <title>Rysowanie Wielokątów</title>
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
     <div class="container">
-        <!-- Panel z narzędziami -->
-        <div class="tools">
-            <!-- Kontrolki skali -->
-            <div class="scale-controls">
-                <label for="gridScale">Skala siatki:</label>
-                <input type="number" id="gridScale" value="50">
-                <button id="changeScale">Zmień skalę</button>
+        <div class="controls">
+            <div class="polygon-info">
+                <input type="text" id="polygonName" placeholder="Nazwa figury">
+                <button id="newPolygon">Nowa figura</button>
             </div>
-            
-            <!-- Kontrolki rysowania -->
-            <div class="drawing-controls">
-                <button id="autoDrawButton">Rysuj automatycznie</button>
-                <button id="undoButton">Cofnij</button>
-                <button id="calculateAreaButton">Oblicz pole</button>
-                <button id="resetButton">Resetuj rysunek</button>
-                <button id="deleteSelectedButton">Usuń zaznaczone</button>
-                <button id="editModeButton">Tryb edycji</button>
+            <button id="reset">Reset</button>
+            <div class="grid-control">
+                <label>Skala siatki (px):
+                    <input type="number" id="gridSize" value="50" min="10" max="100" step="10">
+                </label>
             </div>
-            
-            <!-- Pole do wprowadzania komend -->
             <div class="command-input">
-                <label for="command">Komenda:</label>
-                <input type="text" id="command" placeholder="np. dodaj 1,1">
+                <input type="text" id="command" placeholder="np. dodaj 100,100">
                 <button id="executeCommand">Wykonaj</button>
             </div>
         </div>
-
-        <!-- Canvas do rysowania -->
-        <canvas id="drawingCanvas"></canvas>
-
-        <!-- Panel informacyjny -->
-        <div class="info">
-            <div id="lineInfo">Informacje o linii: </div>
-            <div id="status">Status: Gotowy</div>
-            <div class="polygons-info">
-                <div id="area">Pole: Nie obliczone</div>
-                <div id="polygonsList">Wielokąty:</div>
-                <div class="polygon-controls">
-                    <button id="newPolygonButton">Nowy wielokąt</button>
-                    <button id="calculateTotalAreaButton">Suma pól</button>
-                </div>
-            </div>
+        
+        <div class="drawing-area">
+            <canvas id="canvas" width="800" height="600"></canvas>
+        </div>
+        
+        <div class="info-panel">
+            <div id="coordinates">Współrzędne: -</div>
+            <div id="activePolygon">Aktywna figura: -</div>
+            <div id="totalArea">Suma pól: 0 m²</div>
+            <div id="polygonList">Figury: -</div>
         </div>
     </div>
-
-    <!-- Podłączenie skryptu JavaScript -->
-    <script src="script.js"></script>
+    <script src="app.js"></script>
 </body>
 </html>
