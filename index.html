@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rysownik</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Panel z narzędziami -->
+        <div class="tools">
+            <!-- Kontrolki skali -->
+            <div class="scale-controls">
+                <label for="gridScale">Skala siatki:</label>
+                <input type="number" id="gridScale" value="50">
+                <button id="changeScale">Zmień skalę</button>
+            </div>
+            
+            <!-- Kontrolki rysowania -->
+            <div class="drawing-controls">
+                <button id="autoDrawButton">Rysuj automatycznie</button>
+                <button id="undoButton">Cofnij</button>
+                <button id="calculateAreaButton">Oblicz pole</button>
+                <button id="resetButton">Resetuj rysunek</button>
+                <button id="deleteSelectedButton">Usuń zaznaczone</button>
+                <button id="editModeButton">Tryb edycji</button>
+            </div>
+            
+            <!-- Pole do wprowadzania komend -->
+            <div class="command-input">
+                <label for="command">Komenda:</label>
+                <input type="text" id="command" placeholder="np. dodaj 1,1">
+                <button id="executeCommand">Wykonaj</button>
+            </div>
+        </div>
+
+        <!-- Canvas do rysowania -->
+        <canvas id="drawingCanvas"></canvas>
+
+        <!-- Panel informacyjny -->
+        <div class="info">
+            <div id="lineInfo">Informacje o linii: </div>
+            <div id="status">Status: Gotowy</div>
+            <div class="polygons-info">
+                <div id="area">Pole: Nie obliczone</div>
+                <div id="polygonsList">Wielokąty:</div>
+                <div class="polygon-controls">
+                    <button id="newPolygonButton">Nowy wielokąt</button>
+                    <button id="calculateTotalAreaButton">Suma pól</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Podłączenie skryptu JavaScript -->
+    <script src="script.js"></script>
+</body>
+</html>
